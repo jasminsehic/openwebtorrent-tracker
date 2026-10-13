@@ -65,7 +65,6 @@ jobs:
             --port 8000 \
             --ssl-cert "$PWD/localhost.pem" \
             --ssl-key "$PWD/localhost-key.pem" \
-            --announce-interval 2 \
             > tracker.log 2>&1 &
           tracker_pid=$!
 
