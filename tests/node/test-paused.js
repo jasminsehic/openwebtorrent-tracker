@@ -149,6 +149,110 @@ async function main() {
     assert.equal(answer.peer_id, partialId);
     assert.equal(answer.to_peer_id, undefined);
 
+    // A paused partial seed can later complete; the completed count must change once.
+    const beforeCompleted = announceReplies(partial, infoHash).length;
+    send(partial, {
+      action: 'announce',
+      event: 'completed',
+      info_hash: infoHash,
+      peer_id: partialId,
+      left: 0,
+      offers: [],
+    });
+    await waitFor(
+      () => announceReplies(partial, infoHash).length > beforeCompleted,
+      'completed announce reply after paused'
+    );
+    reply = announceReplies(partial, infoHash).at(-1);
+    assert.equal(reply.complete, 2, 'paused-to-completed must increment the completed count');
+    assert.equal(reply.incomplete, 0, 'completed peer must no longer count as incomplete');
+
+    // Stopping must remove that peer from the swarm.
+    send(partial, {
+      action: 'announce',
+      event: 'stopped',
+      info_hash: infoHash,
+      peer_id: partialId,
+    });
+    let scrapeCountBefore = observer.messages.filter(
+      message => message.action === 'scrape' && message.files && message.files[infoHash]
+    ).length;
+    send(observer, { action: 'scrape', info_hash: infoHash });
+    await waitFor(
+      () => observer.messages.filter(
+        message => message.action === 'scrape' && message.files && message.files[infoHash]
+      ).length > scrapeCountBefore,
+      'scrape after stopped announce'
+    );
+    let latestScrape = observer.messages.filter(
+      message => message.action === 'scrape' && message.files && message.files[infoHash]
+    ).at(-1);
+    assert.equal(latestScrape.files[infoHash].complete, 1);
+    assert.equal(latestScrape.files[infoHash].incomplete, 0, 'stopped peer must be removed from swarm counts');
+
+    // Rejoin with paused, then disconnect: socket closure must remove membership.
+    const beforeRejoin = announceReplies(partial, infoHash).length;
+    send(partial, {
+      action: 'announce',
+      event: 'paused',
+      info_hash: infoHash,
+      peer_id: partialId,
+      left: 1024,
+      offers: [],
+    });
+    await waitFor(
+      () => announceReplies(partial, infoHash).length > beforeRejoin,
+      'paused reannounce after stopped'
+    );
+    reply = announceReplies(partial, infoHash).at(-1);
+    assert.equal(reply.complete, 1);
+    assert.equal(reply.incomplete, 1, 'paused peer must be able to rejoin after stopped');
+
+    const partialClosed = new Promise(resolve => partial.ws.once('close', resolve));
+    partial.ws.terminate();
+    await partialClosed;
+
+    scrapeCountBefore = observer.messages.filter(
+      message => message.action === 'scrape' && message.files && message.files[infoHash]
+    ).length;
+    send(observer, { action: 'scrape', info_hash: infoHash });
+    await waitFor(
+      () => observer.messages.filter(
+        message => message.action === 'scrape' && message.files && message.files[infoHash]
+      ).length > scrapeCountBefore,
+      'scrape after peer disconnect'
+    );
+    latestScrape = observer.messages.filter(
+      message => message.action === 'scrape' && message.files && message.files[infoHash]
+    ).at(-1);
+    assert.equal(latestScrape.files[infoHash].complete, 1);
+    assert.equal(latestScrape.files[infoHash].incomplete, 0, 'disconnect must remove paused peer from swarm counts');
+
+    // The same peer ID can reconnect and join the swarm again.
+    const reconnect = createClient();
+    try {
+      await waitForOpen(reconnect);
+      send(reconnect, {
+        action: 'announce',
+        event: 'paused',
+        info_hash: infoHash,
+        peer_id: partialId,
+        left: 1024,
+        offers: [],
+      });
+      await waitFor(
+        () => announceReplies(reconnect, infoHash).length > 0,
+        'paused announce after reconnect'
+      );
+      reply = announceReplies(reconnect, infoHash).at(-1);
+      assert.equal(reply.complete, 1);
+      assert.equal(reply.incomplete, 1, 'reconnected peer must be registered exactly once');
+    } finally {
+      if (reconnect.ws.readyState === WebSocket.OPEN || reconnect.ws.readyState === WebSocket.CONNECTING) {
+        reconnect.ws.terminate();
+      }
+    }
+
     // Paused is now supported; unrelated unknown events must remain rejected.
     await waitForOpen(invalid);
     const invalidClosed = new Promise(resolve => invalid.ws.once('close', resolve));
@@ -167,7 +271,7 @@ async function main() {
       )),
     ]);
 
-    console.log('PASS: first/repeated paused announces, incomplete counts, offer forwarding, answer routing, and unknown-event rejection');
+    console.log('PASS: paused announce, completion, stopped removal, disconnect/reconnect, scrape counts, offer/answer routing, and unknown-event rejection');
   } finally {
     for (const client of [seed, partial, observer, invalid]) {
       if (client.ws.readyState === WebSocket.OPEN || client.ws.readyState === WebSocket.CONNECTING) {
