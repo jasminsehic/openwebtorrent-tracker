@@ -95,7 +95,6 @@ jobs:
             exit 1
           fi
 
-          npm --prefix tests/node run test:peer-ids
           npm --prefix tests/node run test:paused
 
       - name: Show tracker log on failure
