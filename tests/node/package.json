@@ -7,7 +7,6 @@
     "ws": "^7.4.0"
   },
   "scripts": {
-    "test:peer-ids": "node test-peer-ids.js",
     "test:paused": "node test-paused.js"
   },
   "author": "",
