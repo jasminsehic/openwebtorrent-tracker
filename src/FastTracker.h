@@ -41,7 +41,9 @@ public:
 		if (action == "announce") {
 			std::string event = (data.count("event") > 0) ? data["event"] : "";
 
-			if (event == "") {
+			// BEP 21: partial seeds may send "paused" on every announce,
+			// including their first. Treat it as a periodic announce.
+			if (event == "" || event == "paused") {
 				if (data.count("answer") == 0) {
 					this->processAnnounce(data, peer);
 				} else {
