@@ -1,14 +1,14 @@
 {
   "name": "openwebtorrent-tracker-test",
   "version": "1.0.0",
-  "description": "",
+  "description": "WebSocket integration tests for OpenWebTorrent tracker",
   "main": "test.js",
   "dependencies": {
     "ws": "^7.4.0"
   },
-  "devDependencies": {},
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test:peer-ids": "node test-peer-ids.js",
+    "test:paused": "node test-paused.js"
   },
   "author": "",
   "license": "MIT"
